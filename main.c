@@ -33,13 +33,15 @@ void getError(char ***wordList) {
 }
 
 int logicalMetaToken(char *wordList) {
+    int specialCharacterFlag;
     if (strcmp(wordList, ">") == 0)
-        return 1;
+        specialCharacterFlag = 1;
     else if (strcmp(wordList, ">>") == 0)
-        return 1;
+        specialCharacterFlag = 1;
     else if (strcmp(wordList, "<") == 0)
-        return 1;
-    return 0;
+        specialCharacterFlag = 1;
+   else specialCharacterFlag = 0;
+   return specialCharacterFlag;
 }
 
 int checkCharactersIO(char **wordList) {
@@ -60,17 +62,16 @@ int checkCharacterPipe(char **wordList) {
         if (strcmp(wordList[i], "|") == 0) characterOrFlag = 1;
         i++;
     }
-    return (characterOrFlag);
-
+    return characterOrFlag;
 }
 
 void getLineCount(int *countBuf, char **wordList) {
-    (*countBuf) = 0;
+    *countBuf = 0;
     int i = 0;
     while (wordList[i] != NULL) {
         ++i;
     }
-    (*countBuf) = i;
+    *countBuf = i;
 }
 
 void countNumberCharactersIO(int *characterInput, int *characterInput1, int *characterInput2, char **wordList) {
@@ -84,7 +85,11 @@ void countNumberCharactersIO(int *characterInput, int *characterInput1, int *cha
 }
 
 int redirectIO(char **wordList, int *posIO) {
-    int characterInput = 0, characterIOFlag = 0, characterInput1 = 0, characterInput2 = 0, i = 0;
+    int characterInput = 0;
+    int characterInput1 = 0;
+    int characterInput2 = 0;
+    int characterIOFlag = 0;
+    int i = 0;
     countNumberCharactersIO(&characterInput, &characterInput1, &characterInput2, wordList);
     while ((characterInput > 0) || (characterInput1 > 0) || (characterInput2 > 0)) {
         int fd = 0;
@@ -131,35 +136,35 @@ int redirectIO(char **wordList, int *posIO) {
     return characterIOFlag;
 }
 
-void executeCommand(char **wordList, int position, int *fd, int characterOrCount, int conveyorFlag, int processFlag) {
-    int errorFlag;
-    int pid, status, result;
-    if (strcmp(wordList[position], "cd") == 0) {
-        if (wordList[position + 1] == NULL) {
+void executeCommand(char **wordList, int command, int *fd, int characterCount, int commandFlag, int modeFlag) {
+    int errorFlag = 0;
+    if (strcmp(wordList[command], "cd") == 0) {
+        if (wordList[command + 1] == NULL) {
             errorFlag = chdir(getenv("HOME"));
         } else
-            errorFlag = chdir(wordList[position + 1]);
+            errorFlag = chdir(wordList[command + 1]);
         if (errorFlag == -1) {
-            printf("Directory not found %s\n", wordList[position + 1]);
+            printf("Directory not found %s\n", wordList[command + 1]);
             errorFlag = 1;
             write(fileDesctriptorState[1], &errorFlag, sizeof(int));
         }
-        printf("The current directory is %s\n", wordList[position + 1]);
+        printf("The current directory is %s\n", wordList[command + 1]);
         errorFlag = 0;
         write(fileDesctriptorState[1], &errorFlag, sizeof(int));
 
     } else {
+        int pid;
         pid = fork();
         if (pid == 0) {
-            if (processFlag == 0) {
+            if (modeFlag == 0) {
                 signal(SIGINT, SIG_DFL);
             }
-            if (conveyorFlag == 1) {
-                if (characterOrCount >= 0) dup2(fd[1], 1);
+            if (commandFlag == 1) {
+                if (characterCount >= 0) dup2(fd[1], 1);
                 close(fd[0]);
                 close(fd[1]);
             }
-            if (conveyorFlag == 0) {
+            if (commandFlag == 0) {
                 if (checkCharactersIO(wordList) == 0) {
                     errorFlag = execvp(wordList[0], wordList);
                 } else {
@@ -184,28 +189,29 @@ void executeCommand(char **wordList, int position, int *fd, int characterOrCount
                     }
                 }
             } else {
-                errorFlag = execvp(wordList[position], wordList + (position * sizeof(char)));
+                errorFlag = execvp(wordList[command], wordList + (command * sizeof(char)));
             }
             if (errorFlag == -1) {
-                if (conveyorFlag == 1) {
+                if (commandFlag == 1) {
                     kill(getppid(), SIGUSR1);
                 } else
                     printf("Wrong operation\n");
                 exit(1);
             }
         } else {
-            if (conveyorFlag == 1) {
+            if (commandFlag == 1) {
                 dup2(fd[0], 0);
                 close(fd[0]);
                 close(fd[1]);
             }
             if (pid == -1) {
                 printf("Error\n");
-                if (conveyorFlag == 1) kill(getppid(), SIGUSR1);
+                if (commandFlag == 1) kill(getppid(), SIGUSR1);
             }
+            int status, result;
             waitpid(pid, &status, 0);
             result = WIFEXITED(status);
-            if ((characterOrCount < 0) || (conveyorFlag == 0)) {
+            if ((characterCount < 0) || (commandFlag == 0)) {
                 if (result != 0) {
                     if (WEXITSTATUS(status)) result = 1;
                     else result = 0;
@@ -271,10 +277,13 @@ void startConveyor(char **wordList, int processFlag) {
         }
         while (wait(NULL) != -1);
         exit(0);
-    } else {
-        if (pid == -1) printf("Сonveyor failed\n");
-        else wait(NULL);
-    }
+    } else if (pid == -1) {
+            printf("Сonveyor failed\n");
+        }
+        else {
+            wait(NULL);
+        }
+
 }
 
 void checkСonveyorOperation(char **wordList, int processFlag) {
@@ -283,16 +292,15 @@ void checkСonveyorOperation(char **wordList, int processFlag) {
     if (processFlag) {
         if (pipeCount) {
             startConveyor(wordList, 1);
-            return;
+        } else {
+            executeCommand(wordList, 0, NULL, 0, 0, 1);
         }
-        executeCommand(wordList, 0, NULL, 0, 0, 1);
-
     } else {
         if (pipeCount) {
             startConveyor(wordList, 0);
-            return;
+        } else {
+            executeCommand(wordList, 0, NULL, 0, 0, 0);
         }
-        executeCommand(wordList, 0, NULL, 0, 0, 0);
     }
 }
 
@@ -338,7 +346,7 @@ void parseDifferentActions(char **wordList, int processFlag) {
     int state = 0, statePrevios, stateNow = 0;
     while (wordList[i] != NULL) {
         if ((strcmp(wordList[i], "&&") == 0) || (strcmp(wordList[i], "||") == 0)) {
-            if (wordList[i+1] == NULL) {
+            if (wordList[i + 1] == NULL) {
                 specialCharactersFlag = 0;
                 free(wordList[i]);
                 wordList[i] = NULL;
@@ -349,7 +357,6 @@ void parseDifferentActions(char **wordList, int processFlag) {
         }
         ++i;
     }
-
     i = 0;
     if (specialCharactersFlag == 0) {
         if (processFlag == 1) checkСonveyorOperation(wordList, 1);
@@ -391,12 +398,12 @@ void parseDifferentActions(char **wordList, int processFlag) {
 
 
 void checkBackgroundMode(char **wordList, int wordsCount) {
-    int operationsCount, nextLine = 0, flag = 0, errorFlag = 0;
+    int operationsCount, nextLine = 0, modeFlag = 0, errorFlag = 0;
     pipe(fileDesctriptorState);
     operationsCount = checkOperations(wordList);
     for (int i = 0; i < operationsCount + 1; i++) {
         int j = nextLine;
-        flag = 0;
+        modeFlag = 0;
         while (wordList[j] != NULL) {
             if ((strcmp(wordList[j], ";") == 0) || (strcmp(wordList[j], "&") == 0)) {
                 if (strcmp(wordList[j], "&") == 0) {
@@ -413,7 +420,7 @@ void checkBackgroundMode(char **wordList, int wordsCount) {
                     if (wordList[nextLine] != NULL) parseDifferentActions(&(wordList[nextLine]), 0);
                     nextLine = j + 1;
                 }
-                flag = 1;
+                modeFlag = 1;
                 break;
             }
             ++j;
@@ -422,7 +429,7 @@ void checkBackgroundMode(char **wordList, int wordsCount) {
             printf("Error when working with a conveyor\n");
             break;
         }
-        if (flag == 0) {
+        if (modeFlag == 0) {
             parseDifferentActions(&(wordList[nextLine]), 0);
         }
     }
@@ -432,41 +439,50 @@ void checkBackgroundMode(char **wordList, int wordsCount) {
 
 
 int logicCheckCharacters(char nextCharacter) {
+    int specialCharacterFlag;
     if (nextCharacter == '&')
-        return 1;
-    if (nextCharacter == '|')
-        return 1;
-    if (nextCharacter == '>')
-        return 1;
-    return 0;
+         specialCharacterFlag = 1;
+    else if (nextCharacter == '|')
+        specialCharacterFlag = 1;
+    else if (nextCharacter == '>')
+        specialCharacterFlag = 1;
+    else specialCharacterFlag = 0;
+    return specialCharacterFlag;
 
 }
 
-int checkCharacters(int character) {
-    if (character == ';')
-        return 1;
-    if (character == '(')
-        return 1;
-    if (character == ')')
-        return 1;
-    if (character == '<')
-        return 1;
-    return 0;
+int checkSpetialChars(int character) {
+    int specialCharacterFlag;
+    if (character == ';') {
+        specialCharacterFlag = 1;
+    }
+   else if (character == '(') {
+        specialCharacterFlag = 1;
+    } else if (character == ')') {
+        specialCharacterFlag = 1;
+        }
+    else if (character == '<') {
+        specialCharacterFlag = 1;
+        }
+    else specialCharacterFlag = 0;
+return specialCharacterFlag;
 
 }
 
 int checkControlWords(char nextCharacter, char nnCharacter, int flag) {
+   int specialCharacterFlag;
     if (logicCheckCharacters(nextCharacter) && flag == 0)
-        return 1;
-    if (logicCheckCharacters(nnCharacter)) {
+        specialCharacterFlag = 1;
+    else if (logicCheckCharacters(nnCharacter)) {
         if (nextCharacter == nnCharacter)
-            return 1;
+            specialCharacterFlag = 1;
     }
-    if (nnCharacter == '\n') {
-        if (checkCharacters(nextCharacter))
-            return 2;
+   else if (nnCharacter == '\n') {
+        if (checkSpetialChars(nextCharacter))
+            specialCharacterFlag = 2;
     }
-    return 0;
+    else specialCharacterFlag = 0;
+    return specialCharacterFlag;
 }
 
 int isDelimiter(char nextCharacter) {
@@ -487,7 +503,7 @@ int getWords(char *inputString) {
     char **wordList = NULL;
     int wordsCount = 0, charactersCount = 0, isNewWord = 1;
     int lengthString = strlen(inputString);
-    int quotesParityOnFlag = 1, quotesCount = 0, flag;
+    int quotesParityOnFlag = 1, quotesCount = 0, logicFlag;
     int wordsControlForFlag = 0, controlWordsFlag, characterSpecialFlag = 0;
     char nextCharacter, nextNextCharacter;
     for (int i = 0; i < lengthString; i++) {
@@ -497,8 +513,8 @@ int getWords(char *inputString) {
             nextNextCharacter = inputString[i + 1];
             wordsControlForFlag = checkControlWords(nextCharacter, nextNextCharacter, 1);
         }
-        flag = (wordsControlForFlag == 1 || controlWordsFlag == 1 || controlWordsFlag == 2);
-        if (flag && characterSpecialFlag == 0) {
+        logicFlag = (wordsControlForFlag == 1 || controlWordsFlag == 1 || controlWordsFlag == 2);
+        if (logicFlag && characterSpecialFlag == 0) {
             if (wordsCount > 0) {
                 wordList[wordsCount - 1][charactersCount] = '\0';
             }
